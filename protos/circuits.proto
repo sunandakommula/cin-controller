@@ -1,0 +1,238 @@
+// Copyright 2018 gRPC authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// Author: kumarn@juniper.net (Nitin Kumar)
+// Author: bsingarayan@juniper.net (Babu Singarayan)
+
+
+syntax = "proto3";
+
+package circuits;
+
+//
+//   Circuits
+//   Circuits allows for the creation of point-to-point IP connections over an IP or Multiprotocol
+//   Label Switching (MPLS)-based network. A circuit is configured between two peers. Each
+//   peer has an endpoint where the service is established across. Below is an illustration of a
+//   simple service, where ‘X’ and ‘Y’ represents the service endpoint of the peers the service is 
+//   being established. X endpoint connects the vCCAP side and Y endpoint connects to RPD
+//
+// +-------+       +--------+     IP      +--------+       +--------+ 
+// |vCCAP1 |-------X Edge   |-------------|   Edge Y-------|   RPD  |
+// +-------+       +--------+             +--------+       +--------+    
+//
+//   The flavors of Circuits are as below
+//         - IP connect
+//  The circuit can carry any traffic that is IP based, that includes tunnels traffic as well, 
+//  (like VXLAN/L2TPv3/GRE etc..)
+//
+//   Circuits (logical view) :
+//   +-------------------------------------------------------------------------------+
+//   |   name        : "ip_connect1"                                                 | 
+//   |   description : Creates IP connect service                                    |
+//   +-------------------------------------------------------------------------------+
+//
+
+// The circuit service definition.
+service CircuitService {
+  // Add/Remove
+  rpc AddCircuitType1 (CreateRequestType1) returns (CircuitCreateResponse) {};
+  rpc AddCircuitType2 (CreateRequestType2) returns (CircuitCreateResponse) {};
+  rpc DeleteCircuit (DeleteRequest) returns (CircuitDeleteResponse) {};
+
+  //To enable or disable the Circuit Administratively. With this the circuit is brought down or up without removing the configuration on the node/router
+rpc setCircuitAdminState (CircuitSetRequest) returns (CircuitSetResponse) {};
+    
+  // Get the operational state of the circuit
+  rpc getCircuit(CircuitGetRequest)          returns (CircuitGetResponse) {};
+
+  //Monitor the status of the circuit
+ rpc monitorCircuit(CircuitMonRequest)      returns (stream CircuitMonResponse) {};
+}
+
+//Below are some compound types
+message Address {
+    oneof AddrFormat {
+        string        addr_string     = 1;
+        bytes         addr_bytes      = 2;
+    }
+}
+
+message Prefix {
+   oneof AddressFamily {
+     Address   inet     = 1;
+     Address  inet6    = 2;
+  }
+}
+
+message IPAddress {
+    Prefix prefix     = 1;
+    uint32 prefix_length  = 2;
+}
+
+enum StatusCode {
+  SUCCESS = 0;
+  FAILURE = 1;
+}
+
+enum CircuitAdminState {
+  CIRCUIT_ADMIN_DOWN = 0;
+  CIRCUIT_ADMIN_UP       = 1;
+}
+
+enum CircuitOperState {
+  CIRCUIT_DOWN         = 0;
+  CIRCUIT_UP               = 1;
+  CIRCUIT_TRANSPORT_DOWN = 2;
+  CIRCUIT_INTERFACE_DOWN   = 3;
+  CIRCUIT_BAD_CONFIG = 4;
+}
+
+//Error status message
+message Status {
+    StatusCode code = 1;
+    string error_message  = 2;
+}
+
+//End point information
+message EndPoint {
+  string node_name  = 1;
+  string port_name  = 2;
+  IPAddress ip_address = 3;
+}
+
+message RoutingAttribute {
+  bool latency_sensitive = 1;
+}
+
+message SignalingAttribute {
+  uint32 lsp_bandwidth = 1;
+}
+
+message DesignAttribute {
+  bool bidirectional_lsp = 1;
+}
+
+// All the transport attributes
+message TransportAttributes {
+  oneof ServiceLevelAttributes {
+      RoutingAttribute   r_attribute = 1;
+      SignalingAttribute s_attribute = 2;
+      DesignAttribute    d_attribute = 3;
+    }
+}
+
+// Below is the important data model of the Circuit creation. It takes the circuit name, the circuit connection type, and the end point information of both the peers to create a circuit. The endpoint contains the information where the service is originated and terminated. 
+message CreateRequest {
+  // Name and type
+  string name        = 1;
+  string description = 2;
+  enum CircuitsType {
+       IP_CONNECT = 0;
+       LAYER2_VPN = 1;
+       LAYER2_CIRCUIT = 2;
+  }
+  CircuitsType type = 3;
+  
+  // Endpoint information
+  EndPoint endpoint_1 = 4;
+  EndPoint endpoint_2 = 5;
+}
+
+message CircuitSetRequest {
+  string name          = 1;
+  CircuitAdminState admin_state = 2;
+}
+
+message  CircuitGetRequest {
+  string name = 1;
+}
+
+message AllStatus {
+  CircuitAdminState admin_status = 1;
+  CircuitOperState  oper_status     = 2;
+}
+
+// The response message for the Circuit creation
+message CircuitCreateResponse {
+  string name  = 1;
+  Status status           = 2;
+  AllStatus   admin_oper_status = 3;
+}
+
+message CircuitDeleteResponse {
+  string name  = 1;
+  Status status           = 2;
+}
+
+message CircuitSetResponse {
+  string name  = 1;
+  Status status           = 2;
+}
+
+message CircuitGetResponse {
+  string name  = 1;
+  Status status           = 2;
+  CircuitOperState oper_state = 3;
+}
+
+// Circuit type that picks pre-established transport
+message CreateRequestType1 {
+  // Request info
+  CreateRequest request_info = 1;
+  
+  //Transport info
+  string transport_name1 = 2;
+  string transport_name2 = 3;
+}
+
+//The system will pick up the transport based on transport attributes to stitch the service
+//to transport.
+message CreateRequestType2 {
+  // Request info
+  CreateRequest request_info = 1;
+  
+  // Transport info
+  TransportAttributes attributes = 2;
+}
+
+//Just circuit_name is unique to delete a service
+message DeleteRequest {
+  string name  = 1;
+}
+
+//Monitor information on a circuit. It allows to monitor either circuit status or get 
+//statistics on the circuit
+message CircuitMonRequest {
+  string name  = 1;
+  oneof monitor {
+     bool status      = 2;
+     bool statistics  = 3;
+  }
+}
+
+//message statistics
+message CircuitStatistics {
+  repeated uint32    service_ingress  = 1;
+  repeated uint32    service_egress  = 2;
+}
+
+//provide status or statistics
+message CircuitMonResponse {
+  string name  = 1;
+  Status status    = 2;
+  oneof monitor {
+     AllStatus   admin_oper_status = 3;
+     CircuitStatistics stats = 4;
+  }
+}
